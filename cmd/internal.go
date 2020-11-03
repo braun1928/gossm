@@ -184,6 +184,14 @@ func setTarget() error {
 		if err != nil {
 			return err
 		}
+
+		if domain == "" {
+			domain, err = findManagedInstanceByInstanceId(region, target)
+			if err != nil {
+				return err
+			}
+		}
+
 		if domain == "" {
 			return fmt.Errorf("[err] don't exist running instances \n")
 		}
@@ -213,6 +221,14 @@ func setMultiTarget() error {
 		if err != nil {
 			return err
 		}
+
+		if domain == "" {
+			domain, err = findManagedInstanceByInstanceId(region, target)
+			if err != nil {
+				return err
+			}
+		}
+
 		if domain == "" {
 			return fmt.Errorf("[err] don't exist running instances \n")
 		}
@@ -568,6 +584,27 @@ func findManagedInstances(region string) (map[string][]string, error) {
 	}
 
         return table, nil
+}
+
+func findManagedInstanceByInstanceId(region string, instanceId string) (string, error) {
+	svc := ssm.New(awsSession, aws.NewConfig().WithRegion(region))
+	input := &ssm.GetInventoryInput{
+		Filters: []*ssm.InventoryFilter{
+			{Key: aws.String("AWS:InstanceInformation.ResourceType"), Type: aws.String("Equal"), Values: []*string{aws.String("ManagedInstance")}},
+			{Key: aws.String("AWS:InstanceInformation.InstanceId"), Type: aws.String("Equal"), Values: []*string{aws.String(instanceId)}},
+		},
+	}
+	output, err := svc.GetInventory(input)
+	if err != nil {
+		return "", err
+	}
+
+	for _, entity := range output.Entities {
+		id := *entity.Id
+		return id, nil
+	}
+
+        return "", nil
 }
 
 func findDomainByInstanceId(region string, instanceId string) (string, error) {
