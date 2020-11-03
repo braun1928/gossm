@@ -298,6 +298,15 @@ func askTarget(region string) (target, domain string, err error) {
 		return
 	}
 
+	managed, suberr := findManagedInstances(region)
+	if suberr != nil {
+		err = suberr
+		return
+	}
+	for k, v := range managed {
+		table[k] = v
+	}
+
 	options := make([]string, 0, len(table))
 	for k, _ := range table {
 		options = append(options, k)
@@ -536,6 +545,29 @@ func findInstances(region string) (map[string][]string, error) {
 		}
 	}
 	return table, nil
+}
+
+func findManagedInstances(region string) (map[string][]string, error) {
+	svc := ssm.New(awsSession, aws.NewConfig().WithRegion(region))
+	input := &ssm.GetInventoryInput{
+		Filters: []*ssm.InventoryFilter{
+			{Key: aws.String("AWS:InstanceInformation.ResourceType"), Type: aws.String("Equal"), Values: []*string{aws.String("ManagedInstance")}},
+		},
+	}
+	output, err := svc.GetInventory(input)
+	if err != nil {
+		return nil, err
+	}
+
+	table := make(map[string][]string)
+	for _, entity := range output.Entities {
+		id := *entity.Id
+		name := entity.Data["AWS:InstanceInformation"].Content[0]["ComputerName"]
+
+		table[fmt.Sprintf("%s\t(%s)", *name, id)] = []string{id, ""}
+	}
+
+        return table, nil
 }
 
 func findDomainByInstanceId(region string, instanceId string) (string, error) {
