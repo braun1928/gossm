@@ -565,46 +565,66 @@ func findInstances(region string) (map[string][]string, error) {
 
 func findManagedInstances(region string) (map[string][]string, error) {
 	svc := ssm.New(awsSession, aws.NewConfig().WithRegion(region))
-	input := &ssm.GetInventoryInput{
-		Filters: []*ssm.InventoryFilter{
-			{Key: aws.String("AWS:InstanceInformation.ResourceType"), Type: aws.String("Equal"), Values: []*string{aws.String("ManagedInstance")}},
-		},
+	table := make(map[string][]string)
+
+	var ssmPages func(*string) error
+	ssmPages = func(token *string) error {
+		input := &ssm.DescribeInstanceInformationInput{
+			Filters: []*ssm.InstanceInformationStringFilter{
+				{Key: aws.String("ResourceType"), Values: []*string{aws.String("ManagedInstance")}},
+			},
+			NextToken: token,
+		}
+
+		output, err := svc.DescribeInstanceInformation(input)
+		if err != nil {
+			return err
+		}
+
+		for _, instance := range output.InstanceInformationList {
+			id := *instance.InstanceId
+			name := *instance.Name
+
+			table[fmt.Sprintf("%s\t(%s)", name, id)] = []string{id, name}
+		}
+
+		if output.NextToken != nil {
+			err = ssmPages(output.NextToken)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}
-	output, err := svc.GetInventory(input)
+
+	err := ssmPages(nil)
 	if err != nil {
 		return nil, err
 	}
 
-	table := make(map[string][]string)
-	for _, entity := range output.Entities {
-		id := *entity.Id
-		name := entity.Data["AWS:InstanceInformation"].Content[0]["ComputerName"]
-
-		table[fmt.Sprintf("%s\t(%s)", *name, id)] = []string{id, ""}
-	}
-
-        return table, nil
+	return table, nil
 }
 
 func findManagedInstanceByInstanceId(region string, instanceId string) (string, error) {
 	svc := ssm.New(awsSession, aws.NewConfig().WithRegion(region))
-	input := &ssm.GetInventoryInput{
-		Filters: []*ssm.InventoryFilter{
-			{Key: aws.String("AWS:InstanceInformation.ResourceType"), Type: aws.String("Equal"), Values: []*string{aws.String("ManagedInstance")}},
-			{Key: aws.String("AWS:InstanceInformation.InstanceId"), Type: aws.String("Equal"), Values: []*string{aws.String(instanceId)}},
+	input := &ssm.DescribeInstanceInformationInput{
+		Filters: []*ssm.InstanceInformationStringFilter{
+			{Key: aws.String("ResourceType"), Values: []*string{aws.String("ManagedInstance")}},
+			{Key: aws.String("InstanceIds"), Values: []*string{aws.String(instanceId)}},
 		},
 	}
-	output, err := svc.GetInventory(input)
+	output, err := svc.DescribeInstanceInformation(input)
 	if err != nil {
 		return "", err
 	}
 
-	for _, entity := range output.Entities {
-		id := *entity.Id
+	if len(output.InstanceInformationList) > 0 {
+		id := *output.InstanceInformationList[0].InstanceId
 		return id, nil
 	}
 
-        return "", nil
+	return "", nil
 }
 
 func findDomainByInstanceId(region string, instanceId string) (string, error) {
